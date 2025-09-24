@@ -1,0 +1,14 @@
+{
+  "module": "microbit",
+  "symbols": [
+    { "name": "accelerometer.get_x", "kind": "function", "signature": "() -> int", "doc": "Get X axis acceleration (mg)." },
+    { "name": "accelerometer.get_y", "kind": "function", "signature": "() -> int", "doc": "Get Y axis acceleration (mg)." },
+    { "name": "accelerometer.get_z", "kind": "function", "signature": "() -> int", "doc": "Get Z axis acceleration (mg)." },
+  { "name": "button_a", "kind": "constant", "doc": "Button A singleton.", "value": "__BUTTON_A__" },
+  { "name": "button_b", "kind": "constant", "doc": "Button B singleton.", "value": "__BUTTON_B__" },
+  { "name": "Image.HEART", "kind": "constant", "doc": "Heart image.", "value": "09090:99999:99999:09990:00900" },
+  { "name": "Image.HAPPY", "kind": "constant", "doc": "Happy face.", "value": "00000:09090:00000:90009:09990" },
+    { "name": "display.scroll", "kind": "function", "signature": "(text: str, delay: int = 150) -> None", "doc": "Scroll text across the display." },
+    { "name": "sleep", "kind": "function", "signature": "(ms: int) -> None", "doc": "Delay for ms milliseconds." }
+  ]
+}

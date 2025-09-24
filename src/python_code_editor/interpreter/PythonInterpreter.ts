@@ -2,6 +2,7 @@
 "use client";
 
 import type { PyodideInterface } from "pyodide";
+import { augmentMicrobitModule } from "../mock/generatedMicrobitAugmentation";
 
 const urls = {
   indexURL: {
@@ -43,6 +44,7 @@ export class PythonInterpreter {
   private hardwareModules: Record<string, any> = {};
   private isReady = false;
   private static scriptLoaded = false; // static flag to track if loaded
+  private debugEnabled = false;
 
   constructor(private useRemote = true) {}
 
@@ -90,20 +92,35 @@ export class PythonInterpreter {
     };
   }
 
+  setDebug(enabled: boolean) {
+    this.debugEnabled = enabled;
+  }
+
   registerHardwareModule(name: string, module: Record<string, any>) {
     if (!this.pyodide) throw new Error("Interpreter not initialized");
-    this.hardwareModules[name] = module;
-    this.pyodide.registerJsModule(name, module);
+  // Allow augmentation before registration so Python sees augmented surface immediately
+  const augmented = augmentMicrobitModule(module);
+  this.hardwareModules[name] = augmented;
+  this.pyodide.registerJsModule(name, augmented);
   }
 
   async run(code: string): Promise<string> {
     if (!this.pyodide) throw new Error("Interpreter not initialized");
     code = this.transformCode(code);
     try {
+      if (this.debugEnabled) {
+        console.debug("[PythonInterpreter] about to run code:\n", code);
+      }
       await this.injectPrintRedirect();
       await this.pyodide.runPythonAsync(code);
+      if (this.debugEnabled) {
+        console.debug("[PythonInterpreter] run completed successfully");
+      }
       return "";
     } catch (err: any) {
+      console.error("[PythonInterpreter] run error:", err);
+      // Pause here to inspect the error in DevTools
+      debugger;
       return err.toString();
     }
   }

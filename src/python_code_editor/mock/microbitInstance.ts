@@ -6,14 +6,16 @@ import {
   createImageFromString,
   isValidImage,
 } from "../data/microbitImages";
+// AUTO-GENERATED augmentation import (populated by generate:microbit script)
+import { augmentMicrobitModule } from './generatedMicrobitAugmentation.ts';
 
 export type MicrobitEvent =
   | {
-      type: "pin-change";
-      pin: string;
-      value: number;
-      pinType: "digital" | "analog";
-    }
+    type: "pin-change";
+    pin: string;
+    value: number;
+    pinType: "digital" | "analog";
+  }
   | { type: "led-change"; x: number; y: number; value: number }
   | { type: "button-press"; button: "A" | "B" | "AB" }
   | { type: "reset" };
@@ -26,7 +28,7 @@ interface HandlerProxy {
 }
 
 class ButtonInstance {
-  constructor(private name: "A" | "B" | "AB") {}
+  constructor(private name: "A" | "B" | "AB") { }
 
   getName(): "A" | "B" | "AB" {
     return this.name;
@@ -159,6 +161,9 @@ export class MicrobitSimulator {
     B: false,
     AB: false,
   };
+  // Track button press counts & was_pressed semantics
+  private buttonPressCounts: Record<"A" | "B", number> = { A: 0, B: 0 };
+  private buttonWasPressed: Record<"A" | "B", boolean> = { A: false, B: false };
   private inputHandlers: Record<"A" | "B" | "AB", HandlerProxy[]> = {
     A: [],
     B: [],
@@ -457,25 +462,90 @@ export class MicrobitSimulator {
       write_digital: (value: number) => this.digitalWritePin(pin, value),
       read_analog: () => this.readAnalogPin(pin),
       write_analog: (value: number) => this.analogWritePin(pin, value),
-      set_pull: () => {}, // Placeholder
+      set_pull: () => { }, // Placeholder
       get_pull: () => 0, // Placeholder
     };
   }
 
   getPythonModule() {
-    const module: any = {
+  let module: any = {
       display: {
-        show: (image: any) => {
-          if (typeof image === "string") {
-            this.showImage(image);
-          } else if (image && typeof image === "object" && image.pixels) {
-            this.showImage(image);
-          } else if (typeof image === "function") {
-            // Handle function-based image creation
-            image({
-              set_pixel: (x: number, y: number, value: number) =>
-                this.set_pixel(x, y, value),
-            });
+        // display.show(x, delay=0, wait=True, loop=False, clear=False)
+        show: (
+          item: any,
+          options?: {
+            delay?: number;
+            wait?: boolean;
+            loop?: boolean;
+            clear?: boolean;
+          }
+        ) => {
+          const { delay = 0, wait = true, loop = false, clear = false } =
+            options || {};
+
+          const renderImage = (img: any) => {
+            if (typeof img === "string") {
+              // Decide: if single char treat as 5x5 pattern if provided, else sequence
+              if (img.length === 1) {
+                // Render pattern via CHARACTER_PATTERNS (fallback to scrollString for letter sequences)
+                this.showString(img, delay || 150);
+              } else {
+                this.showImage(img);
+              }
+            } else if (img && typeof img === "object" && img.pixels) {
+              this.showImage(img);
+            } else if (typeof img === "function") {
+              img({
+                set_pixel: (x: number, y: number, value: number) =>
+                  this.set_pixel(x, y, value),
+              });
+            }
+          };
+
+          const asArray = () => {
+            // Attempt to normalise Python list/tuple proxied objects
+            if (!item) return [];
+            if (Array.isArray(item)) return item;
+            // PyProxy lists expose toJs ?
+            if (typeof item.toJs === "function") {
+              try {
+                const jsVal = item.toJs({ create_proxies: false });
+                if (Array.isArray(jsVal)) return jsVal;
+              } catch { }
+            }
+            return [item];
+          };
+
+            const sequence = asArray();
+
+          const playOnce = async () => {
+            for (let i = 0; i < sequence.length; i++) {
+              renderImage(sequence[i]);
+              if (delay > 0) {
+                await new Promise((r) => setTimeout(r, delay));
+              }
+            }
+            if (clear) this.clearDisplay();
+          };
+
+          if (wait) {
+            const run = async () => {
+              if (loop) {
+                while (true) {
+                  await playOnce();
+                }
+              } else {
+                await playOnce();
+              }
+            };
+            run();
+          } else {
+            // fire and forget
+            (async () => {
+              if (loop) {
+                while (true) await playOnce();
+              } else await playOnce();
+            })();
           }
         },
         scroll: (text: string, interval: number = 150) => {
@@ -490,9 +560,9 @@ export class MicrobitSimulator {
         get_pixel: (x: number, y: number) => {
           return this.ledMatrix[y][x];
         },
-        on: () => {}, // Placeholder
-        off: () => {}, // Placeholder
-        is_on: () => true, // Placeholder
+        on: () => { /* could emulate display power */ },
+        off: () => { /* could blank display */ },
+        is_on: () => true,
       },
       // Add pin instances
       pin0: this.createPinInstance(0),
@@ -516,35 +586,148 @@ export class MicrobitSimulator {
       pin20: this.createPinInstance(20),
       button_a: {
         is_pressed: () => this.buttonStates.A,
-        was_pressed: () => false, // Placeholder
-        get_presses: () => 0, // Placeholder
+        was_pressed: () => {
+          const v = this.buttonWasPressed.A; this.buttonWasPressed.A = false; return v;
+        },
+        get_presses: () => {
+          const c = this.buttonPressCounts.A; this.buttonPressCounts.A = 0; return c;
+        },
       },
       button_b: {
         is_pressed: () => this.buttonStates.B,
-        was_pressed: () => false, // Placeholder
-        get_presses: () => 0, // Placeholder
+        was_pressed: () => {
+          const v = this.buttonWasPressed.B; this.buttonWasPressed.B = false; return v;
+        },
+        get_presses: () => {
+          const c = this.buttonPressCounts.B; this.buttonPressCounts.B = 0; return c;
+        },
       },
       // Add more components as needed
       sleep: this.pause.bind(this),
       running_time: () => Date.now() - this.startTime,
       temperature: () => 20,
+      scale: (
+        value: number,
+        from_: [number, number] = [0, 1023],
+        to: [number, number] = [0, 255]
+      ) => {
+        const [fmin, fmax] = from_;
+        const [tmin, tmax] = to;
+        if (fmax === fmin) return tmin;
+        const ratio = (value - fmin) / (fmax - fmin);
+        const scaled = tmin + ratio * (tmax - tmin);
+        return Math.round(scaled);
+      },
+      panic: (code: number) => {
+        console.error("[microbit] panic", code);
+        // show a basic sad face
+        this.showImage("09090:00000:00900:09090:90009:");
+        throw new Error("microbit panic " + code);
+      },
+      reset: () => this.reset(),
+      set_volume: (v: number) => {
+        module.__volume = Math.max(0, Math.min(255, v | 0));
+      },
+      __volume: 128,
     };
 
     // Add Image constants as simple objects
-    module.Image = {
-      HEART: STANDARD_IMAGES.HEART,
-      HAPPY: STANDARD_IMAGES.HAPPY,
-      SAD: STANDARD_IMAGES.SAD,
-      YES: STANDARD_IMAGES.YES,
-      NO: STANDARD_IMAGES.NO,
-      ANGRY: STANDARD_IMAGES.ANGRY,
-      CONFUSED: STANDARD_IMAGES.CONFUSED,
-      SURPRISED: STANDARD_IMAGES.SURPRISED,
-      ASLEEP: STANDARD_IMAGES.ASLEEP,
-      TRIANGLE: STANDARD_IMAGES.TRIANGLE,
-      CHESSBOARD: STANDARD_IMAGES.CHESSBOARD,
+    // Image implementation (constructor forms mimic MicroPython)
+    const makeImageObject = (pixels: number[][]) => ({
+      width: 5,
+      height: 5,
+      pixels: pixels.map((r) => [...r]),
+      width_() { return 5; },
+      height_() { return 5; },
+      get_pixel: (x: number, y: number) => pixels[y]?.[x] ?? 0,
+      set_pixel: (x: number, y: number, v: number) => {
+        if (x>=0 && x<5 && y>=0 && y<5 && v>=0 && v<=9) { pixels[y][x]=v; }
+      },
+      _shift(dx: number, dy: number) {
+        const np = Array.from({length:5},()=>Array(5).fill(0));
+        for (let y=0;y<5;y++) for (let x=0;x<5;x++) {
+          const sx = x+dx, sy = y+dy;
+          if (sx>=0 && sx<5 && sy>=0 && sy<5) np[y][x]=pixels[sy][sx];
+        }
+        return makeImageObject(np);
+      },
+      shift_left(n=1){ return this._shift(n,0);},
+      shift_right(n=1){ return this._shift(-n,0);},
+      shift_up(n=1){ return this._shift(0,n);},
+      shift_down(n=1){ return this._shift(0,-n);},
+    });
+
+    const parseImageString = (str: string) => {
+      const rows = str.split(":").filter(r=>r.length>0);
+      const pixels: number[][] = Array.from({length:5},()=>Array(5).fill(0));
+      for (let y=0;y<5;y++) {
+        const row = rows[y]||"";
+        for (let x=0;x<5;x++) {
+          const ch = row[x] ?? "0";
+            const v = parseInt(ch,10);
+            pixels[y][x] = Number.isNaN(v)?0:v;
+        }
+      }
+      return pixels;
     };
 
-    return module;
+    const ImageCtor = function(...args: any[]) {
+      if (args.length===0) return makeImageObject(Array.from({length:5},()=>Array(5).fill(0)));
+      if (args.length===1 && typeof args[0]==="string") return makeImageObject(parseImageString(args[0]));
+      if (args.length===2) {
+        const [w,h]=args; if (w===5 && h===5) return makeImageObject(Array.from({length:5},()=>Array(5).fill(0)));
+        // For non-5x5 just create given size (simplified)
+        const pixels = Array.from({length:h},()=>Array(w).fill(0));
+        return { width:w, height:h, pixels };
+      }
+      if (args.length===3) {
+        const [w,h,buf]=args; const pixels: number[][]=[]; let idx=0;
+        for (let y=0;y<h;y++){ const row:number[]=[]; for (let x=0;x<w;x++){ row.push(buf[idx++]||0);} pixels.push(row);} 
+        return { width:w, height:h, pixels };
+      }
+      throw new Error("Invalid Image constructor arguments");
+    } as any;
+
+    module.Image = ImageCtor;
+
+    // Sound / microphone stubs (V2)
+    const soundEvents: string[] = [];
+  let lastEvent: string | null = null; // track last sound event name
+    const thresholds: Record<string, number> = { loud: 128, quiet: 128 };
+    module.SoundEvent = { LOUD: { name: 'loud' }, QUIET: { name: 'quiet' } };
+    module.microphone = {
+  current_event: () => (lastEvent ? String(lastEvent) : 'quiet'),
+      was_event: (ev: any) => {
+        const name = ev?.name || ev;
+        const occurred = soundEvents.includes(name);
+        // consume occurrences
+        for (let i = soundEvents.length -1; i>=0; i--) if (soundEvents[i]===name) soundEvents.splice(i,1);
+        return occurred;
+      },
+      get_events: () => {
+        const copy = [...soundEvents];
+        soundEvents.length = 0; return copy;
+      },
+      set_threshold: (ev: any, level: number) => {
+        const name = ev?.name || ev; thresholds[name]=level;
+      },
+      sound_level: () => 42, // deterministic stub
+    };
+
+    // Expose simple pins for logo & speaker (stubs)
+    module.pin_logo = this.createPinInstance(21); // synthetic id
+    module.pin_speaker = this.createPinInstance(22);
+
+  try { module = augmentMicrobitModule(module); } catch {}
+  return module;
   }
 }
+
+// Apply augmentation if available (non-fatal if generation not run yet)
+try {
+  // @ts-ignore
+  if (augmentMicrobitModule) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const _ = augmentMicrobitModule; // Reference to ensure import not tree-shaken
+  }
+} catch {}
